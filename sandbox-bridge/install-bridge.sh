@@ -58,10 +58,14 @@ dexecr /home/retro/.local/bin/url-bridge-start.sh
 sleep 2
 
 echo "▶ 结果："
-dexecr sh -c 'echo "  守护进程: $(cat ~/.local/share/url-bridge/daemon.pid 2>/dev/null || echo 未启动)"
-  echo "  FIFO    : $(ls -la ~/.local/share/url-bridge/requests.fifo 2>/dev/null | awk "{print \$1}" || echo 缺失)"
+dexecr sh -c 'S="${WOLF_SESSION_ID:-default}"; D="$HOME/.local/share/url-bridge/$S"
+  pid=$(cat "$D/daemon.pid" 2>/dev/null)
+  alive=否; [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && alive=是
+  echo "  会话    : $S"
+  echo "  守护进程: ${pid:-未启动}（存活=$alive）"
+  echo "  FIFO    : $(ls -la "$D/requests.fifo" 2>/dev/null | awk "{print \$1}" || echo 缺失)  $D/requests.fifo"
   echo "  代理已装: $(ls ~/.steam/debian-installation/steamapps/common/Proton*/files/bin/xdg-open 2>/dev/null | wc -l) 个 Proton 版本"
-  echo "  --- 最近日志 ---"; tail -3 /tmp/url-bridge.log 2>/dev/null | sed "s/^/  /"'
+  echo "  --- 最近日志 ---"; tail -3 /tmp/url-bridge.log 2>/dev/null | cut -c1-120 | sed "s/^/  /"'
 
 cat <<EOF
 

@@ -20,7 +20,18 @@
 
 HOME="${HOME:-/home/retro}"
 LOG="${URL_BRIDGE_LOG:-/tmp/url-bridge.log}"
-PIDF="${URL_BRIDGE_PID:-$HOME/.local/share/url-bridge/daemon.pid}"
+# 按会话隔离（多个 WolfLutris 会话共用宿主的 var/lutris/.local）
+SESSION="${WOLF_SESSION_ID:-default}"
+BASE="$HOME/.local/share/url-bridge"
+PIDF="${URL_BRIDGE_PID:-$BASE/$SESSION/daemon.pid}"
+
+# 迁移：清理旧版共用路径（会导致多会话抢读同一 FIFO、pidfile 互相覆盖）
+if [ -p "$BASE/requests.fifo" ]; then
+  rm -f "$BASE/requests.fifo" 2>/dev/null
+  echo "url-bridge-start: 已清理旧版共用 FIFO（迁移到按会话隔离）" >>"$LOG" 2>&1
+fi
+rm -f "$BASE/daemon.pid" 2>/dev/null
+mkdir -p "$BASE/$SESSION" 2>/dev/null
 
 # ── 定位代理源与守护进程（支持镜像安装与用户目录安装两种布局）──────────
 PROXY_SRC=""

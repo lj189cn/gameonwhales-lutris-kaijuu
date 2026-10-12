@@ -21,7 +21,11 @@
 #   PATH 的第一项，且位于持久挂载 steamapps 上，容器重启后仍在。
 # ═══════════════════════════════════════════════════════════════════════════
 
-FIFO="${URL_BRIDGE_FIFO:-/home/retro/.local/share/url-bridge/requests.fifo}"
+# ⚠ 必须按会话隔离：多个 WolfLutris 会话容器共用宿主的 var/lutris/.local
+#   （即共用 $HOME/.local）。若用固定文件名，多个会话的守护进程会抢读同一个
+#   FIFO，导致 URL 被撕碎、甚至弹到另一个会话的画面上。
+SESSION="${WOLF_SESSION_ID:-default}"
+FIFO="${URL_BRIDGE_FIFO:-/home/retro/.local/share/url-bridge/$SESSION/requests.fifo}"
 
 case "${1:-}" in
   http://*|https://*)

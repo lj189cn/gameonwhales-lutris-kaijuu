@@ -20,10 +20,16 @@
 #   URL_BRIDGE_PID     默认 $HOME/.local/share/url-bridge/daemon.pid
 # ═══════════════════════════════════════════════════════════════════════════
 
-FIFO="${URL_BRIDGE_FIFO:-$HOME/.local/share/url-bridge/requests.fifo}"
+# ⚠ 必须按会话隔离：多个 WolfLutris 会话容器共用宿主的 var/lutris/.local，
+#   即共用 $HOME/.local —— FIFO 与 pidfile 若用固定名，会出现
+#     ① 多个守护进程抢读同一 FIFO，URL 被撕碎（实测字符丢失）
+#     ② 某个会话的守护进程读到另一个会话的 URL，弹窗出现在错误的画面上
+#     ③ pidfile 互相覆盖，kill 到不相干的进程
+SESSION="${WOLF_SESSION_ID:-default}"
+FIFO="${URL_BRIDGE_FIFO:-$HOME/.local/share/url-bridge/$SESSION/requests.fifo}"
 PICKER="${URL_BRIDGE_PICKER:-$HOME/.local/bin/browser-picker}"
 LOGF="${URL_BRIDGE_LOG:-/tmp/url-bridge.log}"
-PIDF="${URL_BRIDGE_PID:-$HOME/.local/share/url-bridge/daemon.pid}"
+PIDF="${URL_BRIDGE_PID:-$HOME/.local/share/url-bridge/$SESSION/daemon.pid}"
 
 mkdir -p "$(dirname "$FIFO")" 2>/dev/null
 if [ ! -p "$FIFO" ]; then rm -f "$FIFO" 2>/dev/null; mkfifo "$FIFO" 2>/dev/null; fi
@@ -31,7 +37,7 @@ if [ ! -p "$FIFO" ]; then echo "url-bridge: 无法创建 FIFO $FIFO" >>"$LOGF" 2
 [ -x "$PICKER" ] || echo "url-bridge: 警告，picker 不可执行：$PICKER" >>"$LOGF" 2>&1
 
 echo $$ > "$PIDF" 2>/dev/null
-echo "url-bridge: 就绪 pid=$$ fifo=$FIFO picker=$PICKER DISPLAY=${DISPLAY:-<未设>}" >>"$LOGF" 2>&1
+echo "url-bridge: 就绪 pid=$$ session=$SESSION fifo=$FIFO picker=$PICKER DISPLAY=${DISPLAY:-<未设>}" >>"$LOGF" 2>&1
 
 while :; do
   if IFS= read -r url < "$FIFO"; then
