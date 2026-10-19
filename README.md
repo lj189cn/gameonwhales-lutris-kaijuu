@@ -82,7 +82,8 @@ Mesa 层说明（`Dockerfile` §2.5）：
 
 - Wolf / Lutris 的镜像名直接使用 `gameonwhales/lutris:kaijuu`；
 - 换 Chromium 路径：容器内设 `CHROMIUM=/path/to/chromium`；
-- 换共享盘目录：设 `APP_DIR=/path/to/dir`；
+- 换共享盘目录：设 `CHROMIUM_DIR=/path/to/dir`
+  （**不要用 `APP_DIR`**：GOW 容器里已导出 `APP_DIR=/opt/gow/app`，会把默认路径顶掉）；
 - 停用开机自愈：`touch ~/.config/chromium-default.no-autofix`。
 
 ## 验证
@@ -101,6 +102,7 @@ Mesa 层说明（`Dockerfile` §2.5）：
 | URL（含 `&`）原样传递 | ✅ |
 | 旧卷迁移：picker 关联 → `chromium.desktop`，discord 保留，picker 残留清除 | ✅ |
 | 旧用户级 `chromium.desktop`（Exec 无 `%u`，会吞 URL）被清除 | ✅ |
+| GOW 的 `APP_DIR=/opt/gow/app` 污染下仍能定位 Chromium（用私有 `CHROMIUM_DIR`） | ✅ |
 | 沙箱桥接：FIFO → `chromium-open`，URL 原样送达 | ✅ |
 | Chromium AppImage `--version` = 152.0.7977.64 | ✅ |
 | Mesa 25.3.3+git（RADV GFX1200 / RENOIR）+ 两个扩展 | ✅ |
@@ -117,9 +119,12 @@ Mesa 层说明（`Dockerfile` §2.5）：
    `Exec=...AppImage --no-sandbox --new-window`（没有 `%u`），xdg-open 会打开 Chromium
    但不带 URL；`90-chromium-default.sh` 会删除它，让镜像里的
    `/usr/share/applications/chromium.desktop`（含 `%u`）生效。
-6. **URL 传参**：一律用 `"$URL"` 独立参数，不能字符串拼接（`&` 会被 shell 破坏）。
-7. **验证脚本的挂载**：`docker run -v` 的源路径由宿主机解析，脚本内置了容器路径→宿主路径换算。
-8. **retro 用户是运行时创建的**（cont-init 会先删掉基础镜像里的 `ubuntu` 用户），
+6. **GOW 的 `APP_DIR` 污染**：容器里已导出 `APP_DIR=/opt/gow/app`（GOW 自用），
+   浏览器路径**不能**用 `${APP_DIR:-...}`，否则会去 `/opt/gow/app` 找 Chromium 并失败；
+   `chromium-open` 使用私有变量 `CHROMIUM_DIR`。
+7. **URL 传参**：一律用 `"$URL"` 独立参数，不能字符串拼接（`&` 会被 shell 破坏）。
+8. **验证脚本的挂载**：`docker run -v` 的源路径由宿主机解析，脚本内置了容器路径→宿主路径换算。
+9. **retro 用户是运行时创建的**（cont-init 会先删掉基础镜像里的 `ubuntu` 用户），
    验证脚本直接 source 镜像内真实的 `10-setup_user.sh`。
 
 ## 历史与迁移

@@ -112,6 +112,23 @@ case "$_out2" in
   *) echo "    ✗ xdg-open 链路不符"; ok=0 ;;
 esac
 
+echo "── 3a. 私有 CHROMIUM_DIR（模拟 GOW 的 APP_DIR=/opt/gow/app 污染）──"
+mkdir -p /tmp/cfake
+cat > /tmp/cfake/Chromium-stable-9.9.9.AppImage <<"EOF"
+#!/bin/sh
+printf "%s\n" "$@" > /tmp/cfake-args
+EOF
+chmod +x /tmp/cfake/Chromium-stable-9.9.9.AppImage
+rm -f /tmp/cfake-args
+CHROMIUM_DIR=/tmp/cfake APP_DIR=/opt/gow/app \
+  /usr/local/bin/chromium-open "https://example.com/b?x=1&y=2" >/dev/null 2>&1 || true
+if grep -q "https://example.com/b?x=1&y=2" /tmp/cfake-args 2>/dev/null; then
+  echo "    ✓ APP_DIR 被污染时仍用 CHROMIUM_DIR 找到 Chromium 并传 URL"
+else
+  echo "    ✗ CHROMIUM_DIR/APP_DIR 处理不符"; ok=0
+fi
+rm -rf /tmp/cfake /tmp/cfake-args
+
 echo "── 4. 创建 retro 用户（镜像内真实 cont-init）──"
 mkdir -p /tmp/xdg
 source /opt/gow/bash-lib/utils.sh 2>/dev/null || true
