@@ -84,6 +84,7 @@ Mesa 层说明（`Dockerfile` §2.5）：
 - 换 Chromium 路径：容器内设 `CHROMIUM=/path/to/chromium`；
 - 换共享盘目录：设 `CHROMIUM_DIR=/path/to/dir`
   （**不要用 `APP_DIR`**：GOW 容器里已导出 `APP_DIR=/opt/gow/app`，会把默认路径顶掉）；
+- 启动参数：`--no-sandbox <url>`（**不加 `--new-window`**，复用已有 Chromium 窗口/标签页）；
 - 停用开机自愈：`touch ~/.config/chromium-default.no-autofix`。
 
 ## 验证
@@ -100,6 +101,7 @@ Mesa 层说明（`Dockerfile` §2.5）：
 | 固化文件就位；旧 picker 三件套不存在 | ✅ |
 | `xdg-open → chromium.desktop → chromium-open` | ✅ |
 | URL（含 `&`）原样传递 | ✅ |
+| 启动参数不含 `--new-window` | ✅ |
 | 旧卷迁移：picker 关联 → `chromium.desktop`，discord 保留，picker 残留清除 | ✅ |
 | 旧用户级 `chromium.desktop`（Exec 无 `%u`，会吞 URL）被清除 | ✅ |
 | GOW 的 `APP_DIR=/opt/gow/app` 污染下仍能定位 Chromium（用私有 `CHROMIUM_DIR`） | ✅ |

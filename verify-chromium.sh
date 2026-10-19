@@ -98,7 +98,8 @@ echo "── 3. chromium-open URL 传参（CHROMIUM=/bin/echo）──"
 _out="$(CHROMIUM=/bin/echo /usr/local/bin/chromium-open "https://example.com/a?x=1&y=2" 2>&1 || true)"
 printf "    %s\n" "$_out"
 case "$_out" in
-  *"--no-sandbox"*"--new-window"*"https://example.com/a?x=1&y=2"*) echo "    ✓ 参数与 URL 原样传递（& 未被吞）" ;;
+  *"--new-window"*) echo "    ✗ 不应再带 --new-window"; ok=0 ;;
+  *"--no-sandbox"*"https://example.com/a?x=1&y=2"*) echo "    ✓ 参数与 URL 原样传递（& 未被吞，无 --new-window）" ;;
   *) echo "    ✗ 参数传递不符"; ok=0 ;;
 esac
 
@@ -108,7 +109,8 @@ _out2="$(DISPLAY=:0 CHROMIUM=/bin/echo HOME=/tmp \
         xdg-open "https://example.com/a?x=1&y=2" 2>&1 || true)"
 printf "    %s\n" "$_out2"
 case "$_out2" in
-  *"--no-sandbox"*"--new-window"*"https://example.com/a?x=1&y=2"*) echo "    ✓ xdg-open 解析到 chromium.desktop 并调用 chromium-open" ;;
+  *"--new-window"*) echo "    ✗ xdg-open 链路仍带 --new-window"; ok=0 ;;
+  *"--no-sandbox"*"https://example.com/a?x=1&y=2"*) echo "    ✓ xdg-open 解析到 chromium.desktop 并调用 chromium-open（无 --new-window）" ;;
   *) echo "    ✗ xdg-open 链路不符"; ok=0 ;;
 esac
 

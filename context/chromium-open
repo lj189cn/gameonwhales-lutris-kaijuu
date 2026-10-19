@@ -60,4 +60,4 @@ if [ -z "$_bin" ] || [ ! -x "$_bin" ]; then
   exit 1
 fi
 
-exec "$_bin" --no-sandbox --new-window "$URL"
+exec "$_bin" --no-sandbox "$URL"
