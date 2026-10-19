@@ -11,7 +11,7 @@
 #
 # 安装内容（全部落在持久卷，容器重启后保留）：
 #   ~/.local/bin/xdg-open-sandbox-proxy   沙箱内代理源文件
-#   ~/.local/bin/url-bridge-daemon.sh     FIFO → 选择器 的守护进程
+#   ~/.local/bin/url-bridge-daemon.sh     FIFO → chromium-open 的守护进程
 #   ~/.local/bin/url-bridge-start.sh      部署代理 + 重启守护进程（幂等）
 #   ~/.config/sway/custom-cfg             sway 启动时自动执行上面的 start
 #   → 并立即把代理装到各 Proton 版本 bin 目录、拉起守护进程

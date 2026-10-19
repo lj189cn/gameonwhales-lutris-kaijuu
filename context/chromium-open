@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════════════════════════
+# chromium-open —— 把 URL 直接交给共享盘上的 Chromium（不再弹选择器）
+#
+# 固化位置：/usr/local/bin/chromium-open
+# 调用链：  战网等 Wine 程序 → winebrowser.exe → xdg-open → 本脚本 → Chromium
+#
+# 默认取共享盘里版本号最新的 Chromium-stable-*.AppImage：
+#     /mnt/WD4/public/software/linux/Chromium-stable-152.0.7977.64-x86_64.AppImage
+# 可用环境变量覆盖：
+#     CHROMIUM=/path/to/chromium        # 直接指定可执行文件（测试时也用它）
+#     APP_DIR=/path/to/dir              # 换共享盘目录
+#
+# ⚠ URL 必须用独立参数传（"$URL"），不能拼字符串——URL 里的 & 会被 shell 破坏。
+# ═══════════════════════════════════════════════════════════════════════════
+set -u
+
+URL="${1:-}"
+if [ -z "$URL" ]; then
+  echo "usage: chromium-open <url>" >&2
+  exit 1
+fi
+
+# ── 运行环境（headless sway + Xwayland :0，与旧选择器保持一致）────────────
+export HOME="${HOME:-/home/retro}"
+export DISPLAY="${DISPLAY:-:0}"
+export GDK_BACKEND=x11
+export GTK_A11Y=none
+[ -f /run/pressure-vessel/Xauthority ] && export XAUTHORITY=/run/pressure-vessel/Xauthority
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+  for _s in /tmp/dbus-*; do
+    [ -S "$_s" ] && { export DBUS_SESSION_BUS_ADDRESS="unix:path=$_s"; break; }
+  done
+fi
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/wolf}"
+
+APP_DIR="${APP_DIR:-/mnt/WD4/public/software/linux}"
+
+# ── 定位 Chromium ─────────────────────────────────────────────────────────
+if [ -n "${CHROMIUM:-}" ]; then
+  _bin="$CHROMIUM"
+else
+  _bin="$(ls -1 "$APP_DIR"/Chromium-stable-*.AppImage 2>/dev/null | sort -V | tail -n 1 || true)"
+  if [ -z "$_bin" ]; then
+    _bin="$(command -v chromium chromium-browser 2>/dev/null | head -n 1 || true)"
+  fi
+fi
+
+if [ -z "$_bin" ] || [ ! -x "$_bin" ]; then
+  # 共享盘未挂载/文件不存在时给个可见提示（有 zenity 才弹）
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --error \
+      --text="Chromium 不可执行：${_bin:-未找到}\n（请检查共享盘 /mnt/WD4/public 是否挂载）" \
+      2>/dev/null || true
+  fi
+  echo "chromium-open: Chromium not found/executable: ${_bin:-<empty>}" >&2
+  exit 1
+fi
+
+exec "$_bin" --no-sandbox --new-window "$URL"

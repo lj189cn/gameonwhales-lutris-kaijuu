@@ -1,246 +1,128 @@
-# gameonwhales-lutris-kaijuu
+# gameonwhales/lutris:kaijuu —— Chromium 直连 + 沙箱 URL 桥接 + Mesa 25.3.3+git
 
-在 [Games-on-Whales](https://github.com/games-on-whales/gow) 的 `gameonwhales/lutris` 容器里，让 **Wine/Proton 程序（战网 Battle.net 等）的"使用浏览器完成网页验证"真正能打开浏览器**，并且**每次打开链接弹出浏览器选择窗口**，由你决定用哪个浏览器。
+在 Games-on-Whales `gameonwhales/lutris:edge` 之上固化 Battle.net 网页登录所需的浏览器链路，
+并升级 Mesa 到 **25.3.3+git**（AMD RADV，含 `VK_KHR_cooperative_matrix` / `VK_EXT_shader_float8`）。
 
-本仓库提供两种落地方式，可任选其一（都包含下面两处关键修复）：
+> 历史：本仓库早期版本使用「浏览器选择器（browser-picker）」；现方案已移除 picker，
+> 改为**直接拉起 Chromium**。旧实现仍可在 git 历史中查看。
 
-| 方式 | 适用 | 特点 |
-|---|---|---|
-| **镜像固化**（推荐） | 所有会话、重复部署 | 新会话开箱即用；带**开机自愈**与自动启动桥接 |
-| **运行时安装** | 单个正在运行的会话 | 不用重建镜像，改持久卷即时生效 |
+## 解决什么问题
 
----
+- 战网点「使用浏览器完成验证」没反应；
+- 战网跑在 umu/Proton 的 **pressure-vessel 沙箱**里，沙箱内的 `xdg-open`
+  是 `steam-runtime-urlopen`，只尝试 Steam 管道/D-Bus portal，两者在 Wolf 环境都不可用；
+- 需要给 DLSSNR-AMD 等新 Vulkan 程序提供 Mesa 25.3.3+ 的扩展；
+- 不再需要用户选浏览器：直接用 Chromium。
 
-## 问题背景：这条链会断在三个地方
-
-战网（国服）登录会走「网易 mkey oauth」外部认证流程：
-
-```
-Battle.net (Wine)  →  winebrowser.exe  →  xdg-open  → 浏览器
-```
-
-| # | 症状 | 根因 |
-|---|---|---|
-| 1 | 弹 **"Open With… / No Apps available"** | `~/.config/mimeapps.list` 指向的 `.desktop` 不存在（容器里根本没装浏览器） |
-| 2 | 浏览器进程在跑但**窗口看不到** | GTK/浏览器默认走 wayland-1，sway 不显示其窗口 |
-| 3 | 浏览器打开 **"页面出错！"**，URL 里出现 `%u` | 脚本用 `cmd="${cmd//%u/$URL}"` 拼 URL，bash 把 URL 里的 `&` 当替换模式引用吃掉了 |
-| 4 | 之前能弹选择器，**后来又不弹了** | Firefox 启动时把自己设为默认浏览器，覆写了 `mimeapps.list` |
-| 5 | **点了没任何反应，浏览器根本不出现** | 战网跑在 umu/Proton 的 **pressure-vessel 沙箱**内，沙箱里的 `/usr/bin/xdg-open` 是指向 `steam-runtime-urlopen` 的软链，只会尝试 Steam 管道与 D-Bus portal，本环境两者都不可用 → `Unable to open URL` |
-| 6 | 选择器弹出来了，选完**浏览器却没启动** | 容器环境里已存在 `APP_DIR=/opt/gow/app`（GOW 自用），脚本若用 `${APP_DIR:-默认}` 会被污染，去错误目录找浏览器 |
-
-![问题现场](screenshots/01-openwith-no-apps.png)
-
----
-
-## ⚠ 两条必须先理解的约束
-
-### 约束一：什么能固化、什么不能
-
-Wolf 启动会话容器时会用卷**覆盖**下列路径：
+## 方案
 
 ```
-/home/retro              整个家目录
-/home/retro/.config      用户配置
-/home/retro/.local       用户应用数据
-/var/lutris              游戏库
-/mnt/WD4/public          宿主共享盘
+Wine / Battle.net
+   └─ winebrowser.exe
+        └─ xdg-open
+             ├─ 沙箱内：xdg-open 代理
+             │    └─ 写 FIFO（按 WOLF_SESSION_ID 隔离）
+             │         └─ url-bridge-daemon（沙箱外）
+             │              └─ /usr/local/bin/chromium-open
+             │                   └─ /mnt/WD4/public/software/linux/Chromium-stable-*.AppImage
+             └─ 沙箱外：xdg-open
+                  └─ chromium.desktop
+                       └─ /usr/local/bin/chromium-open
 ```
 
-**写进镜像的这些路径会被挂载遮蔽、根本看不见。** 因此固化位置必须避开它们：
+启动时（`/opt/gow/startup.d/`，retro 身份、Lutris 之前、被 source）：
 
-| 内容 | 位置 |
+| 钩子 | 作用 |
 |---|---|
-| 选择器脚本 | `/usr/local/bin/browser-picker` |
-| URL handler 注册 | `/usr/share/applications/browser-picker.desktop` |
-| 系统级默认 | `/etc/xdg/mimeapps.list` |
-| 开机自愈钩子 | `/opt/gow/startup.d/90-browser-picker.sh` |
-| 桥接守护进程 / 启动脚本 | `/usr/local/bin/url-bridge-*.sh` |
-| 沙箱代理源文件 | `/usr/local/share/url-bridge/xdg-open-sandbox-proxy` |
-| 桥接启动钩子 | `/opt/gow/startup.d/91-url-bridge.sh` |
+| `90-chromium-default.sh` | 清理旧卷里的 picker 残留；把 `~/.config/mimeapps.list` 校正为 `chromium.desktop`（保留 discord 等关联） |
+| `91-url-bridge.sh` | 把沙箱代理装进各 Proton 的 `bin/`，并按会话拉起 `url-bridge-daemon.sh` |
 
-用户级 `~/.config/mimeapps.list`（在卷里）优先级高于系统级，所以每次开机由钩子把它校正回选择器，并保留其他协议关联（如 `discord://`）。
+**为什么不能把文件放 `$HOME`**：Wolf 启动会话容器时用卷覆盖
+`/home/retro`、`/home/retro/.config`、`/home/retro/.local`、`/var/lutris`，
+放进去会被遮蔽。因此所有固化内容都在 `/usr/local`、`/usr/share`、`/etc/xdg`、`/opt/gow`。
 
-### 约束二：pressure-vessel 沙箱里的 `xdg-open` 是个陷阱
-
-战网进程的 `PATH` 第一项是 Proton 的 bin 目录，而沙箱里的 `/usr/bin/xdg-open`
-被替换成了 `steam-runtime-urlopen`：
+## 仓库结构
 
 ```
-$ nsenter -t <battle.net pid> -m -- xdg-open https://example.com
-steam-runtime-urlopen: Unable to open URL
-steam-runtime-urlopen: tried using steam.pipe, received error: Steam is not running
-steam-runtime-urlopen: tried using xdg-desktop-portal, received error: Unable to connect to D-Bus session bus
-```
-
-也就是说：**你在容器里配得再好的 mimeapps / 选择器，沙箱内的战网也永远不会用到。**
-而沙箱内又没有 zenity、也加载不了容器库（`/run/host/usr/bin/zenity` 会因缺 `libadwaita` 失败），无法就地弹窗。
-
-因此本仓库用一个**跨沙箱桥接**：
-
-```
-沙箱内 winebrowser → Proton bin/xdg-open（我们的代理）
-        │  把 URL 写进共享 FIFO（O_RDWR 打开，不阻塞）
-        ▼
-容器内 url-bridge-daemon.sh（沙箱外）
-        │  读取 FIFO
-        ▼
-browser-picker → zenity 选择窗 → 浏览器
-```
-
-![选择器](screenshots/02-browser-picker.png)
-
----
-
-## 方式一：镜像固化
-
-```bash
-./build.sh                                            # → gameonwhales/lutris:kaijuu-picker
-./verify-image.sh gameonwhales/lutris:kaijuu-picker    # 全新卷 + 旧配置自愈验证
-```
-
-让 Wolf 用这个镜像启动 Lutris 会话即可（会话镜像名改成 `gameonwhales/lutris:kaijuu-picker`）。
-启动钩子会在会话开始时自动部署沙箱代理并拉起桥接守护进程。
-
-## 方式二：运行时安装
-
-```bash
-./runtime/install-browser-picker.sh <容器名>   # 选择器 + .desktop + mimeapps（幂等 + 自检）
-./sandbox-bridge/install-bridge.sh  <容器名>   # 沙箱桥接：代理 + 守护进程 + sway 自启
-./runtime/setup-tools.sh            <容器名>   # 可选：诊断工具（容器重启后需重装）
-```
-
-安装后配置全部落在持久卷，容器重启仍生效；sway 通过 `~/.config/sway/custom-cfg`
-在每次会话启动时自动重建代理并重启守护进程。
-
----
-
-## 浏览器放哪
-
-镜像**不打包浏览器**（体积大、且 Chrome/Edge 有再分发条款问题）。把 AppImage 放到宿主共享盘：
-
-```
-/mnt/WD4/public/software/linux/
-├── firefox-149.0.r20260403140140-x86_64.AppImage
-├── Chromium-stable-152.0.7977.64-x86_64.AppImage
-├── Google-Chrome-stable-152.0.7977.64-1-x86_64.AppImage
-└── Microsoft-Edge-stable-152.0.4191.53-1-x86_64.AppImage
-```
-
-该目录在容器内是同一路径，且**不随容器重启丢失**。文件需要有执行位（`chmod +x`）；
-容器内跑 chromium 系必须 `--no-sandbox`；Firefox 必须 `MOZ_ENABLE_WAYLAND=0`（脚本已内置）。
-
-选择器会做**模糊匹配**：即使浏览器升级换了文件名（如 `firefox-150…`），也能自动找到。
-
-### 增删浏览器（不用重建镜像）
-
-在容器里写 `~/.config/browser-picker.conf`（持久卷内）：
-
-```bash
-PICKER_APP_DIR=/mnt/WD4/public/software/linux     # 注意用 PICKER_APP_DIR，不要用 APP_DIR
-BROWSERS=(
-  "Brave|Brave.AppImage --no-sandbox --new-window"
-  "Firefox|firefox-149.0.r20260403140140-x86_64.AppImage --new-window --no-default-browser-check"
-)
-```
-
-想固定用某个浏览器、不要选择器：把 `~/.config/mimeapps.list` 里三个键改成该浏览器的
-`.desktop`，并 `touch ~/.config/browser-picker.no-autofix` 停用自愈。
-
----
-
-## 效果
-
-| 选择器 | 选中后完成登录 |
-|---|---|
-| ![选择器](screenshots/02-browser-picker.png) | ![登录完成](screenshots/03-login-done.png) |
-
----
-
-## 实现要点（踩过的坑）
-
-1. **xdg-open 原生不会弹"选浏览器"窗口**：有默认 handler 就直接开；此容器里 `xdg-desktop-portal-gtk` 的 `UseIn=gnome` 不匹配 sway，AppChooser 列表为空。→ 自建 zenity 选择器。
-2. **GTK 弹窗默认不显示**：进程活着但窗口不在 sway/X11 树里。→ `GDK_BACKEND=x11`（必要时 `XAUTHORITY=/run/pressure-vessel/Xauthority`）。
-3. **URL 传参绝不用字符串替换**：`${cmd//%u/$URL}` 会把 URL 里的 `&` 换成 `%u`。→ 必须数组传参：
-   ```bash
-   read -r -a CMD_ARGS <<< "$cmd"
-   exec "$PICKER_APP_DIR/${CMD_ARGS[0]}" "${CMD_ARGS[@]:1}" "$URL"
-   ```
-   （`.desktop` 里的 `%u` 是**正确**用法，由桌面环境替换、不经过 bash；只有脚本内拼接才必须避免。）
-4. **Firefox/Chrome 会抢默认浏览器**：首次启动覆写 `mimeapps.list`。→ 加 `--no-default-browser-check`，并由启动钩子每次开机校正。
-5. **pressure-vessel 沙箱内的 xdg-open 是 `steam-runtime-urlopen`**（见上文约束二）。→ 跨沙箱 FIFO 桥接。
-6. **`APP_DIR` 环境变量被 GOW 占用**（`APP_DIR=/opt/gow/app`）。→ 脚本一律用私有变量名 `PICKER_APP_DIR`。
-7. **`docker exec` 默认不转发 stdin**：`docker exec sh -c "cat > f" <<EOF` 会写出 **0 字节空文件**且不报错。→ 加 `-i`，并校验文件非空。
-8. **`docker run -v` 的路径由宿主机解析**：在容器里执行 docker 命令时，`-v` 必须给宿主路径（用 `docker inspect "$(hostname)"` 查映射）。`verify-image.sh` 内置了自动换算。
-9. **`retro` 用户是运行时创建的**（`/etc/cont-init.d/10-setup_user.sh`，会先删掉基础镜像里 uid=1000 的 `ubuntu`）。裸 `--entrypoint bash` 里 `gosu retro` 会失败。
-10. **容器 locale 是 POSIX**：中文传给 zenity 会 `Invalid byte sequence`，故选择器界面用英文。
-11. **Wolf 会话容器根文件系统重启即重置**：apt 装的东西全丢（持久卷内的配置不受影响）。
-12. **截图技巧**：sway 的 wayland-1 不支持 `wlr-screencopy` 时用不了 `grim`，但**推流画面所在的 wayland socket 可以**（本机曾为 wayland-2，后变为 wayland-1）：
-    ```bash
-    WAYLAND_DISPLAY=wayland-1 grim -l 0 out.png
-    ```
-13. **用 `pkill -f` 时小心自杀**：模式若出现在自己的命令行里，会把当前 shell 一起杀掉。→ 用 `pkill -x <进程名>` 或按 pidfile 杀。
-
----
-
-## 目录结构
-
-```
-├── Dockerfile                     # 镜像固化：FROM edge + 原 kaijuu 层 + 选择器层 + 桥接层 + 构建期自检
-├── context/                       # ↑ 的构建上下文
-│   ├── browser-picker             #   选择器脚本（→ /usr/local/bin）
-│   ├── browser-picker.desktop     #   handler 注册（→ /usr/share/applications）
-│   ├── mimeapps.list              #   系统级默认（→ /etc/xdg）
-│   ├── 90-browser-picker.sh       #   开机自愈钩子（→ /opt/gow/startup.d）
-│   └── 91-url-bridge.sh           #   桥接启动钩子（→ /opt/gow/startup.d）
-├── sandbox-bridge/                # 跨 pressure-vessel 沙箱的 URL 桥接（两种方式共用）
-│   ├── xdg-open-sandbox-proxy     #   沙箱内代理（写 FIFO）
-│   ├── url-bridge-daemon.sh       #   沙箱外守护进程（读 FIFO → 选择器）
-│   ├── url-bridge-start.sh        #   部署代理 + 重启守护进程（幂等）
-│   ├── sway-custom-cfg            #   运行时装法的 sway 自启片段
-│   └── install-bridge.sh          #   一键装进运行中的容器
+├── Dockerfile                     # 镜像：原 kaijuu 层 + Mesa 25.3.3+git + Chromium 直连 + 沙箱桥接
+├── context/
+│   ├── chromium-open              → /usr/local/bin/chromium-open
+│   ├── chromium.desktop           → /usr/share/applications/chromium.desktop
+│   ├── mimeapps.list              → /etc/xdg/mimeapps.list
+│   ├── 90-chromium-default.sh     → /opt/gow/startup.d/（开机自愈）
+│   └── 91-url-bridge.sh           → /opt/gow/startup.d/（桥接启动）
+├── sandbox-bridge/
+│   ├── url-bridge-daemon.sh       → /usr/local/bin/（FIFO → chromium-open）
+│   ├── url-bridge-start.sh        → /usr/local/bin/（部署代理 + 拉起 daemon）
+│   ├── xdg-open-sandbox-proxy     → /usr/local/share/url-bridge/（沙箱内代理）
+│   ├── install-bridge.sh          # 运行中容器的桥接修复（可选）
+│   └── sway-custom-cfg            # 运行时装法的 sway 自启片段（可选）
 ├── build.sh                       # 构建（含上下文自检）
-├── verify-image.sh                # 全新卷 + 旧配置自愈验证
-├── runtime/                       # 运行时方案（不改镜像）
-│   ├── install-browser-picker.sh
-│   ├── browser-picker.sh
-│   └── setup-tools.sh
-├── docs/
-│   ├── AI-PROMPT-zh.md            # 可直接喂给 AI 的完整排障/部署提示词
-│   ├── RUNTIME-DEPLOY-zh.md       # 运行时部署与容器内改动清单
-│   └── TROUBLESHOOTING-zh.md      # 故障定位全过程（含 pressure-vessel 陷阱）
-└── screenshots/
+├── verify-chromium.sh             # 验证 Chromium 链路 + 旧卷迁移 + 沙箱 FIFO
+├── verify-mesa.sh                 # 验证 Mesa 25.3.3+git（真实 GPU）
+└── screenshots/                   # 01 修复前 / 03 登录完成
 ```
 
-## 排障速查
+## 构建
 
 ```bash
-C=<容器名>
-
-# 桥接是否在跑 / 是否收到 URL
-docker exec -u retro $C tail -20 /tmp/url-bridge.log
-
-# 沙箱内 xdg-open 解析到谁（应为 Proton bin 下的代理）
-P=$(docker exec $C pgrep -f Battle.net.exe | head -1)
-B=$(docker exec $C sh -c 'ls -d ~/.steam/debian-installation/steamapps/common/Proton*/files/bin|head -1')
-docker exec $C nsenter -t $P -m -- env PATH="$B:/usr/bin:/bin" sh -c 'command -v xdg-open'
-
-# 沙箱内手动触发一次（应弹出 Choose Browser）
-docker exec $C nsenter -t $P -m -- env PATH="$B:/usr/bin:/bin" HOME=/home/retro xdg-open https://example.com
-
-# 选择器自身是否正常
-docker exec -u retro $C /home/retro/.local/bin/browser-picker https://example.com
+docker build -t gameonwhales/lutris:kaijuu .
+# 或
+./build.sh
 ```
 
-## 验证过的环境
+Mesa 层说明（`Dockerfile` §2.5）：
 
-- 基础镜像 `gameonwhales/lutris:edge`，运行镜像 `gameonwhales/lutris:kaijuu`（Ubuntu 25.04）
-- 显示：sway + Xwayland `:0`；Wine 走 `wayland-*`
-- 战网：lutris + umu + Proton 11.0（`WINEPREFIX=/var/lutris/Games/battlenet/pfx/`）
-- 实测结果：浏览器打开战网登录页 → 登录完成，页面提示"现在可以返回战网游戏或应用程序"
+- 加 `ppa:ernstp/mesarc`（plucky），版本 `25.3.3+git2601081810.5bf1a7784af~p~mesarc2`；
+- Ubuntu 25.04 的 `libwayland` 只有 1.23.1，而 Mesa 25.3.3 要求 `>= 1.24`，
+  所以先从 Ubuntu 25.10（questing）池补 `libwayland 1.24.0 + libxml2-16`，
+  再用 `apt-get install` 装整套 Mesa（amd64 + i386），**不要** `dpkg --force-depends`。
 
-## 已知限制
+## 使用
 
-- 选择器界面为英文（容器 locale 为 POSIX）
-- 浏览器本体不进镜像，依赖共享盘 `/mnt/WD4/public`
-- 桥接依赖 Proton 的 bin 目录在 PATH 首位；Proton 大版本更新后由启动脚本自动重装代理
-- 首次构建会重跑 kaijuu 的 `libglew-dev + steam` 层（原 Dockerfile 空白字符差异导致缓存不匹配，约 2–3 分钟）；想快速迭代可临时把 `FROM` 改成 `gameonwhales/lutris:kaijuu`
+- Wolf / Lutris 的镜像名直接使用 `gameonwhales/lutris:kaijuu`；
+- 换 Chromium 路径：容器内设 `CHROMIUM=/path/to/chromium`；
+- 换共享盘目录：设 `APP_DIR=/path/to/dir`；
+- 停用开机自愈：`touch ~/.config/chromium-default.no-autofix`。
+
+## 验证
+
+```bash
+./verify-chromium.sh   # 需要本机 docker
+./verify-mesa.sh       # 需要宿主 /dev/dri（真实 GPU）
+```
+
+实测（2026-10-19）：
+
+| 检查 | 结果 |
+|---|---|
+| 固化文件就位；旧 picker 三件套不存在 | ✅ |
+| `xdg-open → chromium.desktop → chromium-open` | ✅ |
+| URL（含 `&`）原样传递 | ✅ |
+| 旧卷迁移：picker 关联 → `chromium.desktop`，discord 保留，picker 残留清除 | ✅ |
+| 沙箱桥接：FIFO → `chromium-open`，URL 原样送达 | ✅ |
+| Chromium AppImage `--version` = 152.0.7977.64 | ✅ |
+| Mesa 25.3.3+git（RADV GFX1200 / RENOIR）+ 两个扩展 | ✅ |
+
+## 关键坑
+
+1. **卷覆盖**：`$HOME` 下的固化文件会被 Wolf 的卷遮蔽，必须放系统目录。
+2. **pressure-vessel**：没有 FIFO 桥接，战网的 URL 根本出不了沙箱。
+3. **按会话隔离**：多会话共用宿主 `var/lutris/.local`，FIFO/pidfile 必须带
+   `WOLF_SESSION_ID`，否则抢读、串台。
+4. **Mesa/libwayland**：先升 libwayland 1.24，再 apt 装 Mesa；`--force-depends` 会留下
+   `wl_display_dispatch_queue_timeout` 未定义符号，Wayland 显示时才炸。
+5. **URL 传参**：一律用 `"$URL"` 独立参数，不能字符串拼接（`&` 会被 shell 破坏）。
+6. **验证脚本的挂载**：`docker run -v` 的源路径由宿主机解析，脚本内置了容器路径→宿主路径换算。
+7. **retro 用户是运行时创建的**（cont-init 会先删掉基础镜像里的 `ubuntu` 用户），
+   验证脚本直接 source 镜像内真实的 `10-setup_user.sh`。
+
+## 历史与迁移
+
+- 早期版本：`browser-picker`（zenity 选择器）+ 沙箱桥接；
+- 现在：桥接保留，FIFO 的消费端从 picker 改为 `chromium-open`；
+- 旧卷里的 picker desktop/conf 会被 `90-chromium-default.sh` 自动清理。
+
+## License
+
+未添加 LICENSE（由仓库所有者决定）。
