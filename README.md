@@ -100,6 +100,7 @@ Mesa 层说明（`Dockerfile` §2.5）：
 | `xdg-open → chromium.desktop → chromium-open` | ✅ |
 | URL（含 `&`）原样传递 | ✅ |
 | 旧卷迁移：picker 关联 → `chromium.desktop`，discord 保留，picker 残留清除 | ✅ |
+| 旧用户级 `chromium.desktop`（Exec 无 `%u`，会吞 URL）被清除 | ✅ |
 | 沙箱桥接：FIFO → `chromium-open`，URL 原样送达 | ✅ |
 | Chromium AppImage `--version` = 152.0.7977.64 | ✅ |
 | Mesa 25.3.3+git（RADV GFX1200 / RENOIR）+ 两个扩展 | ✅ |
@@ -112,9 +113,13 @@ Mesa 层说明（`Dockerfile` §2.5）：
    `WOLF_SESSION_ID`，否则抢读、串台。
 4. **Mesa/libwayland**：先升 libwayland 1.24，再 apt 装 Mesa；`--force-depends` 会留下
    `wl_display_dispatch_queue_timeout` 未定义符号，Wayland 显示时才炸。
-5. **URL 传参**：一律用 `"$URL"` 独立参数，不能字符串拼接（`&` 会被 shell 破坏）。
-6. **验证脚本的挂载**：`docker run -v` 的源路径由宿主机解析，脚本内置了容器路径→宿主路径换算。
-7. **retro 用户是运行时创建的**（cont-init 会先删掉基础镜像里的 `ubuntu` 用户），
+5. **旧 chromium.desktop 吞 URL**：用户卷里若残留
+   `Exec=...AppImage --no-sandbox --new-window`（没有 `%u`），xdg-open 会打开 Chromium
+   但不带 URL；`90-chromium-default.sh` 会删除它，让镜像里的
+   `/usr/share/applications/chromium.desktop`（含 `%u`）生效。
+6. **URL 传参**：一律用 `"$URL"` 独立参数，不能字符串拼接（`&` 会被 shell 破坏）。
+7. **验证脚本的挂载**：`docker run -v` 的源路径由宿主机解析，脚本内置了容器路径→宿主路径换算。
+8. **retro 用户是运行时创建的**（cont-init 会先删掉基础镜像里的 `ubuntu` 用户），
    验证脚本直接 source 镜像内真实的 `10-setup_user.sh`。
 
 ## 历史与迁移

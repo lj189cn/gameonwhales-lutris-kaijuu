@@ -14,8 +14,9 @@
 #   /usr/local/share/url-bridge/xdg-open-sandbox-proxy
 # ═══════════════════════════════════════════════════════════════════════════
 
+# 优先使用镜像内版本；用户卷里的旧脚本只作为兜底（旧版 daemon 默认调 browser-picker，已废弃）
 _bp_start="/usr/local/bin/url-bridge-start.sh"
-[ -x "$HOME/.local/bin/url-bridge-start.sh" ] && _bp_start="$HOME/.local/bin/url-bridge-start.sh"
+[ -x "$_bp_start" ] || _bp_start="$HOME/.local/bin/url-bridge-start.sh"
 
 if [ -x "$_bp_start" ]; then
   "$_bp_start" >/dev/null 2>&1 || true

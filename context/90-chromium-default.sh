@@ -23,10 +23,21 @@ _cd_log() {
   if command -v gow_log >/dev/null 2>&1; then gow_log "[chromium-default] $*"; fi
 }
 
-# ── 清理旧选择器残留（用户卷里可能有）────────────────────────────────────
+# ── 清理旧残留（用户卷里可能有）──────────────────────────────────────────
+# 1) 旧选择器
+# 2) 旧 chromium.desktop：它没有 %u，会导致「打开 Chromium 但不带 URL」，
+#    必须删掉让镜像里的 /usr/share/applications/chromium.desktop 生效
+# 3) 旧运行时桥接：daemon 默认调用 ~/.local/bin/browser-picker（已不存在），
+#    删掉后 91 钩子会用镜像里的 /usr/local/bin/url-bridge-*.sh
 rm -f "${_cd_home}/.local/share/applications/browser-picker.desktop" \
+      "${_cd_home}/.local/share/applications/chromium.desktop" \
       "${_cd_dir}/browser-picker.conf" \
-      "${_cd_dir}/browser-picker.no-autofix" 2>/dev/null || true
+      "${_cd_dir}/browser-picker.no-autofix" \
+      "${_cd_home}/.local/bin/browser-picker" \
+      "${_cd_home}/.local/bin/browser-picker.bak-dnr" \
+      "${_cd_home}/.local/bin/url-bridge-daemon.sh" \
+      "${_cd_home}/.local/bin/url-bridge-start.sh" \
+      "${_cd_home}/.local/bin/xdg-open-sandbox-proxy" 2>/dev/null || true
 
 if [ -f "${_cd_dir}/chromium-default.no-autofix" ]; then
   _cd_log "检测到 no-autofix，跳过 mimeapps.list 校正"

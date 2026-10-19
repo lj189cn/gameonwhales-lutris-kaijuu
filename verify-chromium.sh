@@ -17,7 +17,7 @@ set -euo pipefail
 
 IMAGE="${1:-gameonwhales/lutris:kaijuu}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-WORKDIR="$HERE"
+WORKDIR="$(cd "$HERE/.." && pwd)"
 
 # ── 本容器路径 → 宿主机路径（docker -v 由宿主机解析）─────────────────────
 host_path_of() {
@@ -53,6 +53,14 @@ Exec=/usr/local/bin/browser-picker %u
 Type=Application
 EOF
 echo "BROWSERS=(x)" > "$LOCAL_VOL/.config/browser-picker.conf"
+# 旧用户级 chromium.desktop：Exec 没有 %u，会导致「打开 Chromium 但不带 URL」
+cat > "$LOCAL_VOL/.local/share/applications/chromium.desktop" <<'EOF'
+[Desktop Entry]
+Name=Chromium
+Exec=env GDK_BACKEND=x11 /mnt/WD4/public/software/linux/Chromium-stable-152.0.7977.64-x86_64.AppImage --no-sandbox --new-window
+Type=Application
+MimeType=x-scheme-handler/http;x-scheme-handler/https;text/html;
+EOF
 chmod -R 777 "$LOCAL_VOL"
 
 echo "▶ 镜像      : $IMAGE"
@@ -129,6 +137,10 @@ grep -q "discord-1221314350216646828" /home/retro/.config/mimeapps.list \
   && echo "    ✓ 卷内 picker desktop 残留已清" || { echo "    ✗ picker desktop 残留仍在"; ok=0; }
 [ ! -e /home/retro/.config/browser-picker.conf ] \
   && echo "    ✓ 卷内 browser-picker.conf 已清" || { echo "    ✗ browser-picker.conf 仍在"; ok=0; }
+[ ! -e /home/retro/.local/share/applications/chromium.desktop ] \
+  && echo "    ✓ 卷内无 %u 的旧 chromium.desktop 已清" || { echo "    ✗ 旧 chromium.desktop 仍在（会吞 URL）"; ok=0; }
+[ ! -e /home/retro/.local/bin/url-bridge-daemon.sh ] \
+  && echo "    ✓ 卷内旧 url-bridge 脚本已清" || { echo "    ✗ 旧 url-bridge 脚本仍在"; ok=0; }
 [ "$(stat -c %U /home/retro/.config/mimeapps.list)" = "retro" ] \
   && echo "    ✓ 文件属主 retro" || { echo "    ✗ 属主不是 retro"; ok=0; }
 
