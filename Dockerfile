@@ -1,12 +1,12 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# gameonwhales/lutris:kaijuu + Chromium 直连（Mesa 25.3.3+git 固化版）
+# gameonwhales/lutris:kaijuu + Chromium 直连（Mesa 26.2.4+git 固化版）
 #
 # 原 kaijuu 层：
 #     FROM gameonwhales/lutris:edge
 #     RUN apt-get update && apt-get install -y libglew-dev steam && rm -rf /var/lib/apt/lists/*
 #
 # 本文件在其上固化两件事：
-#   1) Mesa 25.3.3+git（AMD RADV；DLSSNR-AMD 需要 cooperative_matrix / float8）
+#   1) Mesa 26.2.4+git（AMD RADV；DLSSNR-AMD 需要 cooperative_matrix / float8）
 #   2) 浏览器直连 Chromium：战网等 Wine 程序点击"使用浏览器验证"时，
 #      xdg-open 直接拉起共享盘里的 Chromium AppImage，**不再弹选择器**
 #      （旧的 browser-picker 已移除，见 git 历史）
@@ -36,7 +36,7 @@
 FROM gameonwhales/lutris:edge
 
 LABEL org.opencontainers.image.title="gow-lutris-kaijuu-chromium-mesa" \
-      org.opencontainers.image.description="kaijuu + direct Chromium handler + Mesa 25.3.3+git" \
+      org.opencontainers.image.description="kaijuu + direct Chromium handler + Mesa 26.2.4+git" \
       org.opencontainers.image.source="local"
 
 # ── 1. 原 kaijuu 层（保持不变）────────────────────────────────────────────
@@ -57,20 +57,27 @@ RUN apt-get update && \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# ── 2.5 Mesa 25.3.3+git（AMD RADV；DLSSNR-AMD 需要 cooperative_matrix / float8）──
-#   来源：ernstp/mesarc PPA（plucky 已有 25.3.3+git2601081810.5bf1a7784af~p~mesarc2）
-#   ⚠ 先补 libwayland 1.24：Mesa 25.3.3 的 mesa-vulkan-drivers 声明
-#     libwayland-client0 (>= 1.24.0)，而 Ubuntu 25.04 只有 1.23.1。
-#     若用 dpkg --force-depends 硬装会掩盖依赖，导致 Wayland 显示时
-#     libvulkan_radeon.so 找不到 wl_display_dispatch_queue_timeout 而崩溃。
-#     故从 Ubuntu 25.10（questing）池取 libwayland 1.24.0 + libxml2-16 先装上，
-#     再用 apt 正常解析依赖安装整套 Mesa（amd64 + i386）。
-#   验证：dpkg 版本 25.3.3+git…；libwayland 符号存在；apt-get check 无破损。
+# ── 2.5 Mesa 26.2.4+git（AMD RADV；DLSSNR-AMD 0.0.7 要求 Mesa 26.2+）──
+#   来源：
+#     - Mesa 26.2.4+git2610011653.9a0169f2a72~r~mesarc0：ernstp/mesarc 的 resolute(26.04) 源
+#     - libc6 2.43 / libllvm22：Ubuntu resolute 归档（Mesa 26.2 的硬依赖）
+#     - libdrm 2.4.134+git：mesarc resolute（RADV 需要新的 amdgpu ioctl，2.4.124 会初始化失败）
+#     - libwayland 1.24：questing 池（plucky 只有 1.23.1）
+#   ⚠ 会在镜像内把 libc6/libc-bin/locales 升到 resolute；容器隔离，但属跨发行版升级，
+#     已实测 RADV GFX1200 正常、apt-get check 无破损。
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         software-properties-common curl ca-certificates; \
     add-apt-repository -y ppa:ernstp/mesarc; \
+    cp /etc/apt/sources.list.d/ernstp-ubuntu-mesarc-plucky.sources \
+       /etc/apt/sources.list.d/ernstp-ubuntu-mesarc-resolute.sources; \
+    sed -i 's/^Suites: plucky/Suites: resolute/' \
+        /etc/apt/sources.list.d/ernstp-ubuntu-mesarc-resolute.sources; \
+    echo 'deb http://archive.ubuntu.com/ubuntu resolute main universe' \
+        > /etc/apt/sources.list.d/resolute.list; \
+    echo 'deb http://archive.ubuntu.com/ubuntu resolute-updates main universe' \
+        >> /etc/apt/sources.list.d/resolute.list; \
     apt-get update; \
     mkdir -p /tmp/wl && cd /tmp/wl; \
     pool=http://archive.ubuntu.com/ubuntu/pool/main; \
@@ -95,6 +102,10 @@ RUN set -eux; \
     dpkg -i libxml2-16_*.deb libwayland-*.deb; \
     ldconfig; \
     apt-get install -y --no-install-recommends \
+        libllvm22 \
+        libdrm2 libdrm2:i386 \
+        libdrm-amdgpu1 libdrm-amdgpu1:i386 \
+        libdrm-intel1 libdrm-intel1:i386 libdrm-common \
         mesa-libgallium mesa-libgallium:i386 \
         libgl1-mesa-dri libgl1-mesa-dri:i386 \
         libegl-mesa0 libegl-mesa0:i386 \
@@ -103,14 +114,17 @@ RUN set -eux; \
         mesa-vulkan-drivers mesa-vulkan-drivers:i386 \
         mesa-va-drivers mesa-va-drivers:i386; \
     apt-get check; \
-    dpkg-query -W -f='${Version}\n' mesa-vulkan-drivers | grep -Eq '^25\.3\.3\+git'; \
-    dpkg-query -W -f='${Version}\n' mesa-vulkan-drivers:i386 | grep -Eq '^25\.3\.3\+git'; \
+    dpkg-query -W -f='${Version}\n' mesa-vulkan-drivers | grep -Eq '^26\.2\.4\+git'; \
+    dpkg-query -W -f='${Version}\n' mesa-vulkan-drivers:i386 | grep -Eq '^26\.2\.4\+git'; \
     nm -D /usr/lib/x86_64-linux-gnu/libwayland-client.so.0 | \
         grep -q wl_display_dispatch_queue_timeout; \
+    test -f /usr/lib/x86_64-linux-gnu/libvulkan_radeon.so; \
+    rm -f /etc/apt/sources.list.d/resolute.list \
+          /etc/apt/sources.list.d/ernstp-ubuntu-mesarc-resolute.sources; \
     rm -rf /tmp/wl; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*; \
-    echo "Mesa 25.3.3+git（amd64+i386）固化完成"
+    echo "Mesa 26.2.4+git（amd64+i386）固化完成"
 
 # ── 3. 固化文件 ───────────────────────────────────────────────────────────
 COPY context/chromium-open           /usr/local/bin/chromium-open
@@ -169,8 +183,8 @@ RUN set -eux; \
     grep -q 'CHROMIUM\|chromium-open' /usr/local/bin/url-bridge-daemon.sh; \
     command -v xdg-open >/dev/null; \
     command -v update-desktop-database >/dev/null; \
-    dpkg-query -W -f='${Version}' mesa-vulkan-drivers | grep -q '^25\.3\.3+git'; \
-    dpkg-query -W -f='${Version}' mesa-vulkan-drivers:i386 | grep -q '^25\.3\.3+git'; \
+    dpkg-query -W -f='${Version}' mesa-vulkan-drivers | grep -q '^26\.2\.4+git'; \
+    dpkg-query -W -f='${Version}' mesa-vulkan-drivers:i386 | grep -q '^26\.2\.4+git'; \
     nm -D /usr/lib/x86_64-linux-gnu/libwayland-client.so.0 | \
         grep -q wl_display_dispatch_queue_timeout; \
-    echo "Chromium 直连 + Mesa 25.3.3+git 固化自检通过"
+    echo "Chromium 直连 + Mesa 26.2.4+git 固化自检通过"

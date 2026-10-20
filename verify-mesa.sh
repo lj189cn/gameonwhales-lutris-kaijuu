@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════
-# verify-mesa.sh —— 验证镜像内 Mesa 25.3.3+git（含真实 GPU 检查）
+# verify-mesa.sh —— 验证镜像内 Mesa 26.2.4+git（含真实 GPU 检查）
 #
 # 检查项：
-#   1. amd64 / i386 的 mesa-vulkan-drivers 版本均为 25.3.3+git…
+#   1. amd64 / i386 的 mesa-vulkan-drivers 版本均为 26.2.4+git…
 #   2. apt-get check 无未满足依赖（证明不是 --force-depends 硬装）
 #   3. libwayland-client.so.0 含 wl_display_dispatch_queue_timeout（1.24+ 符号）
 #   4. 真实 GPU（--device /dev/dri）下 vulkaninfo：
-#        driverInfo = Mesa 25.3.3+git…，且带
+#        driverInfo = Mesa 26.2.4+git…，且带
 #        VK_KHR_cooperative_matrix、VK_EXT_shader_float8
 #
 # 用法：./verify-mesa.sh [镜像名]
@@ -37,7 +37,7 @@ for p in mesa-vulkan-drivers:amd64 mesa-vulkan-drivers:i386 \
          libgbm1:amd64 libgbm1:i386 mesa-va-drivers:amd64 mesa-va-drivers:i386; do
   v="$(dpkg-query -W -f="\${Version}" "$p" 2>/dev/null || echo MISSING)"
   case "$v" in
-    25.3.3+git*) printf "    ✓ %-28s %s\n" "$p" "$v" ;;
+    26.2.4+git*) printf "    ✓ %-28s %s\n" "$p" "$v" ;;
     *)           printf "    ✗ %-28s %s\n" "$p" "$v"; ok=0 ;;
   esac
 done
@@ -54,8 +54,8 @@ if [ -e /dev/dri/renderD128 ]; then
   chk "vulkaninfo 能枚举设备" vulkaninfo --summary
   echo "    driverInfo / deviceName:"
   vulkaninfo --summary 2>/dev/null | grep -E "deviceName|driverInfo" | sed "s/^/      /" | head -12
-  chk "RADV 报告 Mesa 25.3.3+git" \
-      bash -c "vulkaninfo --summary 2>/dev/null | grep -q \"Mesa 25\.3\.3+git\""
+  chk "RADV 报告 Mesa 26.2.4+git" \
+      bash -c "vulkaninfo --summary 2>/dev/null | grep -q \"Mesa 26\.2\.4+git\""
   chk "VK_KHR_cooperative_matrix 存在" \
       bash -c "vulkaninfo 2>/dev/null | grep -q VK_KHR_cooperative_matrix"
   chk "VK_EXT_shader_float8 存在" \

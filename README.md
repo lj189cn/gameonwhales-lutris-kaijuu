@@ -1,7 +1,7 @@
-# gameonwhales/lutris:kaijuu —— Chromium 直连 + 沙箱 URL 桥接 + Mesa 25.3.3+git
+# gameonwhales/lutris:kaijuu —— Chromium 直连 + 沙箱 URL 桥接 + Mesa 26.2.4+git
 
 在 Games-on-Whales `gameonwhales/lutris:edge` 之上固化 Battle.net 网页登录所需的浏览器链路，
-并升级 Mesa 到 **25.3.3+git**（AMD RADV，含 `VK_KHR_cooperative_matrix` / `VK_EXT_shader_float8`）。
+并升级 Mesa 到 **26.2.4+git**（AMD RADV，含 `VK_KHR_cooperative_matrix` / `VK_EXT_shader_float8`）。
 
 > 历史：本仓库早期版本使用「浏览器选择器（browser-picker）」；现方案已移除 picker，
 > 改为**直接拉起 Chromium**。旧实现仍可在 git 历史中查看。
@@ -11,7 +11,7 @@
 - 战网点「使用浏览器完成验证」没反应；
 - 战网跑在 umu/Proton 的 **pressure-vessel 沙箱**里，沙箱内的 `xdg-open`
   是 `steam-runtime-urlopen`，只尝试 Steam 管道/D-Bus portal，两者在 Wolf 环境都不可用；
-- 需要给 DLSSNR-AMD 等新 Vulkan 程序提供 Mesa 25.3.3+ 的扩展；
+- 需要给 DLSSNR-AMD 等新 Vulkan 程序提供 Mesa 26.2.4+ 的扩展；
 - 不再需要用户选浏览器：直接用 Chromium。
 
 ## 方案
@@ -44,7 +44,7 @@ Wine / Battle.net
 ## 仓库结构
 
 ```
-├── Dockerfile                     # 镜像：原 kaijuu 层 + Mesa 25.3.3+git + Chromium 直连 + 沙箱桥接
+├── Dockerfile                     # 镜像：原 kaijuu 层 + Mesa 26.2.4+git + Chromium 直连 + 沙箱桥接
 ├── context/
 │   ├── chromium-open              → /usr/local/bin/chromium-open
 │   ├── chromium.desktop           → /usr/share/applications/chromium.desktop
@@ -59,7 +59,7 @@ Wine / Battle.net
 │   └── sway-custom-cfg            # 运行时装法的 sway 自启片段（可选）
 ├── build.sh                       # 构建（含上下文自检）
 ├── verify-chromium.sh             # 验证 Chromium 链路 + 旧卷迁移 + 沙箱 FIFO
-├── verify-mesa.sh                 # 验证 Mesa 25.3.3+git（真实 GPU）
+├── verify-mesa.sh                 # 验证 Mesa 26.2.4+git（真实 GPU）
 └── screenshots/                   # 01 修复前 / 03 登录完成
 ```
 
@@ -73,10 +73,12 @@ docker build -t gameonwhales/lutris:kaijuu .
 
 Mesa 层说明（`Dockerfile` §2.5）：
 
-- 加 `ppa:ernstp/mesarc`（plucky），版本 `25.3.3+git2601081810.5bf1a7784af~p~mesarc2`；
-- Ubuntu 25.04 的 `libwayland` 只有 1.23.1，而 Mesa 25.3.3 要求 `>= 1.24`，
-  所以先从 Ubuntu 25.10（questing）池补 `libwayland 1.24.0 + libxml2-16`，
-  再用 `apt-get install` 装整套 Mesa（amd64 + i386），**不要** `dpkg --force-depends`。
+- Mesa `26.2.4+git2610011653.9a0169f2a72~r~mesarc0`，来自 `ernstp/mesarc` 的 **resolute(26.04)** 源；
+- Mesa 26.2 需要 **libc6 >= 2.43 / libllvm22**，从 Ubuntu resolute 归档安装；
+- RADV 需要 **libdrm 2.4.134+**（plucky 的 2.4.124 会让 `amdgpu_query_sw_info` 初始化失败）；
+- `libwayland` 仍从 questing 池补 1.24（plucky 只有 1.23.1）；
+- 因此这是**跨发行版升级**（libc/locales 到 resolute），只发生在镜像内；已实测 RADV GFX1200 正常、`apt-get check` 无破损。
+- 不要用 `dpkg --force-depends` 绕过依赖。
 
 ## 使用
 
@@ -107,7 +109,7 @@ Mesa 层说明（`Dockerfile` §2.5）：
 | GOW 的 `APP_DIR=/opt/gow/app` 污染下仍能定位 Chromium（用私有 `CHROMIUM_DIR`） | ✅ |
 | 沙箱桥接：FIFO → `chromium-open`，URL 原样送达 | ✅ |
 | Chromium AppImage `--version` = 152.0.7977.64 | ✅ |
-| Mesa 25.3.3+git（RADV GFX1200 / RENOIR）+ 两个扩展 | ✅ |
+| Mesa 26.2.4+git（RADV GFX1200 / RENOIR）+ 两个扩展 | ✅ |
 
 ## 关键坑
 

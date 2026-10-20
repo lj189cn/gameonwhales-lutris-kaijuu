@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键构建「kaijuu + Chromium 直连 + Mesa 25.3.3+git」镜像
+# 一键构建「kaijuu + Chromium 直连 + Mesa 26.2.4+git」镜像
 #
 # 用法：./build.sh [镜像标签]
 #   默认标签：gameonwhales/lutris:kaijuu
